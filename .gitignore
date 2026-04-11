@@ -1,4 +1,5 @@
 backend/data/
+db/
 backend/uvicorn.log
 backend/.uvicorn.pid
 __pycache__/

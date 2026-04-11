@@ -91,7 +91,7 @@ PIDFILE="$ROOT/backend/.uvicorn.pid"
 
 if [[ "$FOREGROUND" == "1" ]]; then
   echo "前台: $UVICORN main:app --host $HOST --port $PORT $([[ "$RELOAD" == "1" ]] && echo --reload)"
-  echo "访问: http://127.0.0.1:${PORT}"
+  echo "访问: http://127.0.0.1:${PORT}/jianli/"
   if [[ "$RELOAD" == "1" ]]; then
     exec "$UVICORN" main:app --host "$HOST" --port "$PORT" --reload
   else
@@ -105,4 +105,4 @@ nohup "$UVICORN" main:app --host "$HOST" --port "$PORT" >>"$LOG" 2>&1 &
 echo $! >"$PIDFILE"
 echo "已在后台运行，PID $(cat "$PIDFILE")"
 echo "日志: $LOG"
-echo "访问: http://127.0.0.1:${PORT}"
+echo "访问: http://127.0.0.1:${PORT}/jianli/"

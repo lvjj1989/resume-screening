@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -19,9 +19,11 @@ from models import Folder, Resume
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="小熊简历筛选")
+JIANLI_PREFIX = "/jianli"
 
-app.add_middleware(
+jianli_app = FastAPI(title="小熊简历筛选")
+
+jianli_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -31,7 +33,7 @@ app.add_middleware(
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    jianli_app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 class FolderCreate(BaseModel):
@@ -121,7 +123,7 @@ def _move_file_to_archive(src: Path, resume: Resume) -> None:
     shutil.move(str(src), str(dest))
 
 
-@app.get("/", response_class=HTMLResponse)
+@jianli_app.get("/", response_class=HTMLResponse)
 def index():
     index_path = STATIC_DIR / "index.html"
     if index_path.is_file():
@@ -132,7 +134,7 @@ def index():
 # --- Folders ---
 
 
-@app.post("/api/folders")
+@jianli_app.post("/api/folders")
 def create_folder(payload: FolderCreate, db: Session = Depends(get_db)):
     name = payload.name.strip()
     if not name:
@@ -144,7 +146,7 @@ def create_folder(payload: FolderCreate, db: Session = Depends(get_db)):
     return {"id": f.id, "name": f.name, "created_at": f.created_at.isoformat() if f.created_at else None}
 
 
-@app.get("/api/folders")
+@jianli_app.get("/api/folders")
 def list_folders(db: Session = Depends(get_db)):
     rows = db.query(Folder).order_by(Folder.created_at.desc()).all()
     result = []
@@ -180,7 +182,7 @@ def list_folders(db: Session = Depends(get_db)):
     return result + [archive_entry]
 
 
-@app.patch("/api/folders/{folder_id}")
+@jianli_app.patch("/api/folders/{folder_id}")
 def rename_folder(folder_id: int, payload: FolderCreate, db: Session = Depends(get_db)):
     name = payload.name.strip()
     if not name:
@@ -195,7 +197,7 @@ def rename_folder(folder_id: int, payload: FolderCreate, db: Session = Depends(g
     return {"id": f.id, "name": f.name, "created_at": f.created_at.isoformat() if f.created_at else None}
 
 
-@app.get("/api/archive/list")
+@jianli_app.get("/api/archive/list")
 def archive_list(path: str = Query("", description="相对历史人才库的路径")):
     rel = unquote(path or "")
     base = _safe_archive_target(rel)
@@ -221,7 +223,7 @@ def archive_list(path: str = Query("", description="相对历史人才库的路�
     return items
 
 
-@app.get("/api/archive/download")
+@jianli_app.get("/api/archive/download")
 def archive_download(path: str = Query(..., description="相对历史人才库的路径")):
     full = _safe_archive_target(unquote(path))
     if not full.is_file():
@@ -234,7 +236,7 @@ def archive_download(path: str = Query(..., description="相对历史人才库�
     )
 
 
-@app.get("/api/archive/preview")
+@jianli_app.get("/api/archive/preview")
 def archive_preview(path: str = Query(...)):
     full = _safe_archive_target(unquote(path))
     if not full.is_file():
@@ -248,7 +250,7 @@ def archive_preview(path: str = Query(...)):
     )
 
 
-@app.delete("/api/folders/{folder_id}")
+@jianli_app.delete("/api/folders/{folder_id}")
 def delete_folder(folder_id: int, db: Session = Depends(get_db)):
     f = db.query(Folder).filter(Folder.id == folder_id).first()
     if not f:
@@ -283,7 +285,7 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)):
 # --- Resumes ---
 
 
-@app.get("/api/folders/{folder_id}/resumes")
+@jianli_app.get("/api/folders/{folder_id}/resumes")
 def list_resumes(folder_id: int, db: Session = Depends(get_db)):
     f = db.query(Folder).filter(Folder.id == folder_id).first()
     if not f:
@@ -306,7 +308,7 @@ def list_resumes(folder_id: int, db: Session = Depends(get_db)):
     ]
 
 
-@app.post("/api/folders/{folder_id}/resumes")
+@jianli_app.post("/api/folders/{folder_id}/resumes")
 async def upload_resume(
     folder_id: int,
     request: Request,
@@ -352,7 +354,7 @@ async def upload_resume(
     }
 
 
-@app.delete("/api/resumes/{resume_id}")
+@jianli_app.delete("/api/resumes/{resume_id}")
 def delete_resume(resume_id: int, db: Session = Depends(get_db)):
     r = db.query(Resume).filter(Resume.id == resume_id).first()
     if not r:
@@ -371,7 +373,7 @@ def delete_resume(resume_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@app.get("/api/resumes/{resume_id}/download")
+@jianli_app.get("/api/resumes/{resume_id}/download")
 def download_resume(resume_id: int, db: Session = Depends(get_db)):
     r = db.query(Resume).filter(Resume.id == resume_id).first()
     if not r:
@@ -391,7 +393,7 @@ def download_resume(resume_id: int, db: Session = Depends(get_db)):
     )
 
 
-@app.get("/api/resumes/{resume_id}/preview")
+@jianli_app.get("/api/resumes/{resume_id}/preview")
 def preview_resume(resume_id: int, db: Session = Depends(get_db)):
     """内联预览：不增加下载次数。"""
     r = db.query(Resume).filter(Resume.id == resume_id).first()
@@ -407,3 +409,12 @@ def preview_resume(resume_id: int, db: Session = Depends(get_db)):
         filename=r.original_filename,
         headers={"Content-Disposition": "inline"},
     )
+
+
+app = FastAPI()
+app.mount(JIANLI_PREFIX, jianli_app)
+
+
+@app.get("/")
+def root_redirect():
+    return RedirectResponse(url=f"{JIANLI_PREFIX}/", status_code=302)

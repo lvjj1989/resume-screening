@@ -1,0 +1,179 @@
+/* 数据库管理页 */
+.admin-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 2.5rem;
+  position: relative;
+  z-index: 1;
+}
+
+.admin-meta {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.admin-meta-row {
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.admin-meta-row strong {
+  color: var(--ink);
+  margin-right: 0.35rem;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.admin-toolbar label {
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-toolbar select {
+  font: inherit;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-solid);
+  min-width: 12rem;
+}
+
+.admin-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 0.65rem;
+  color: var(--ink);
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.admin-table th {
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(99, 102, 241, 0.06);
+  white-space: nowrap;
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-table tbody tr:hover td {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.admin-table .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.admin-folders-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .admin-folders-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.admin-panel {
+  margin-bottom: 1.75rem;
+}
+
+.admin-sql-area {
+  width: 100%;
+  min-height: 9rem;
+  padding: 0.75rem 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: rgba(15, 23, 42, 0.03);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.admin-sql-hint {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: 0.5rem 0 0.75rem;
+  line-height: 1.5;
+}
+
+.admin-sql-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+.admin-sql-result {
+  margin-top: 1rem;
+}
+
+.admin-sql-meta {
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.5rem;
+}
+
+.admin-sql-error {
+  font-size: 0.875rem;
+  color: var(--danger);
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+}

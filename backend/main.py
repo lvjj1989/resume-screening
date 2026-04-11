@@ -1,4 +1,5 @@
 import mimetypes
+import os
 import re
 import shutil
 import uuid
@@ -6,15 +7,17 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
 
+from typing import Optional
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, text
+from sqlalchemy.orm import Session, joinedload
 
-from database import ARCHIVE_DIR, Base, UPLOAD_DIR, engine, get_db
+from database import ARCHIVE_DIR, Base, DB_PATH, UPLOAD_DIR, engine, get_db
 from models import Folder, Resume
 
 Base.metadata.create_all(bind=engine)
@@ -38,6 +41,30 @@ if STATIC_DIR.exists():
 
 class FolderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+
+
+class AdminResumePatch(BaseModel):
+    download_count: Optional[int] = Field(None, ge=0)
+
+
+class AdminSqlBody(BaseModel):
+    sql: str = Field(..., min_length=1, max_length=100_000)
+
+
+_SQL_ATTACH_DETACH = re.compile(r"\b(attach|detach)\s+database\b", re.IGNORECASE)
+
+
+def _sql_cell_json(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, bytes):
+        n = len(v)
+        return f"<bytes {n} B>" if n else "<bytes 0>"
+    if isinstance(v, (int, float, str, bool)):
+        return v
+    return str(v)
 
 
 def _folder_upload_dir(folder_id: int) -> Path:
@@ -409,6 +436,133 @@ def preview_resume(resume_id: int, db: Session = Depends(get_db)):
         filename=r.original_filename,
         headers={"Content-Disposition": "inline"},
     )
+
+
+# --- Admin（数据库管理页） ---
+
+
+@jianli_app.get("/api/admin/overview")
+def admin_overview(db: Session = Depends(get_db)):
+    folders = db.query(Folder).order_by(Folder.id.desc()).all()
+    resume_total = db.query(func.count(Resume.id)).scalar() or 0
+    out = []
+    for f in folders:
+        n = (
+            db.query(func.count(Resume.id)).filter(Resume.folder_id == f.id).scalar() or 0
+        )
+        out.append(
+            {
+                "id": f.id,
+                "name": f.name,
+                "created_at": f.created_at.isoformat() if f.created_at else None,
+                "resume_count": int(n),
+            }
+        )
+    return {
+        "db_path": str(DB_PATH),
+        "resume_total": int(resume_total),
+        "folders": out,
+    }
+
+
+@jianli_app.get("/api/admin/resumes")
+def admin_resumes(
+    folder_id: Optional[int] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    if folder_id is not None:
+        f = db.query(Folder).filter(Folder.id == folder_id).first()
+        if not f:
+            raise HTTPException(status_code=404, detail="文件夹不存在")
+    q = db.query(Resume).options(joinedload(Resume.folder))
+    if folder_id is not None:
+        q = q.filter(Resume.folder_id == folder_id)
+    total = q.count()
+    rows = q.order_by(Resume.id.desc()).offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "id": r.id,
+                "folder_id": r.folder_id,
+                "folder_name": r.folder.name if r.folder else "",
+                "original_filename": r.original_filename,
+                "stored_filename": r.stored_filename,
+                "content_type": r.content_type,
+                "download_count": r.download_count or 0,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@jianli_app.patch("/api/admin/resumes/{resume_id}")
+def admin_patch_resume(
+    resume_id: int,
+    payload: AdminResumePatch,
+    db: Session = Depends(get_db),
+):
+    r = db.query(Resume).filter(Resume.id == resume_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    if payload.download_count is not None:
+        r.download_count = payload.download_count
+        db.add(r)
+        db.commit()
+        db.refresh(r)
+    return {
+        "id": r.id,
+        "folder_id": r.folder_id,
+        "original_filename": r.original_filename,
+        "download_count": r.download_count,
+    }
+
+
+@jianli_app.post("/api/admin/sql")
+def admin_run_sql(body: AdminSqlBody):
+    """执行单条 SQL（SELECT 返回行集；INSERT/UPDATE/DELETE 等会提交）。禁止 ATTACH/DETACH DATABASE。"""
+    flag = os.environ.get("ADMIN_SQL_DISABLE", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        raise HTTPException(status_code=403, detail="已关闭 SQL 执行（环境变量 ADMIN_SQL_DISABLE）")
+    sql = body.sql.strip()
+    if not sql:
+        raise HTTPException(status_code=400, detail="SQL 为空")
+    if _SQL_ATTACH_DETACH.search(sql):
+        raise HTTPException(status_code=400, detail="禁止 ATTACH / DETACH DATABASE")
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(text(sql))
+            if result.returns_rows:
+                cols = list(result.keys())
+                mappings = result.mappings().all()
+                rows = [{c: _sql_cell_json(m[c]) for c in cols} for m in mappings]
+                return {
+                    "kind": "select",
+                    "columns": cols,
+                    "rows": rows,
+                    "row_count": len(rows),
+                }
+            rc = result.rowcount
+            return {
+                "kind": "mutate",
+                "rowcount": rc if rc is not None else -1,
+            }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@jianli_app.get("/admin", response_class=HTMLResponse)
+@jianli_app.get("/admin/", response_class=HTMLResponse)
+def admin_page():
+    path = STATIC_DIR / "admin.html"
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return HTMLResponse("<p>请放置 static/admin.html</p>", status_code=404)
 
 
 app = FastAPI()

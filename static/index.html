@@ -48,7 +48,12 @@
 
         <div class="panel panel-create">
           <div class="panel-glow" aria-hidden="true"></div>
-          <div class="panel-inner create-row">
+          <div class="panel-inner">
+            <div class="create-panel-head">
+              <span class="create-panel-title">新建业务文件夹</span>
+              <span class="create-panel-sub">创建后可在卡片上重命名或删除</span>
+            </div>
+            <div class="create-row">
             <input
               id="new-folder-name"
               class="input input-lg"
@@ -61,6 +66,7 @@
               <span class="btn-icon" aria-hidden="true">+</span>
               新建文件夹
             </button>
+            </div>
           </div>
         </div>
 
@@ -69,14 +75,21 @@
 
       <section id="view-resumes" class="view hidden">
         <div class="resume-top">
+          <div class="resume-toolbar-strip">
           <div class="toolbar toolbar-spread">
             <button type="button" id="btn-back" class="btn btn-ghost btn-back">
               <span class="btn-chevron" aria-hidden="true">‹</span>
               返回文件夹
             </button>
-            <button type="button" id="btn-delete-folder" class="btn btn-danger-outline">
-              删除此文件夹
-            </button>
+            <div class="toolbar-end">
+              <button type="button" id="btn-rename-folder" class="btn btn-ghost btn-rename">
+                重命名
+              </button>
+              <button type="button" id="btn-delete-folder" class="btn btn-danger-outline">
+                删除此文件夹
+              </button>
+            </div>
+          </div>
           </div>
 
           <div class="resume-hero">
@@ -100,11 +113,12 @@
             </div>
             <div class="resume-hero-text">
               <h1 id="resume-folder-title" class="resume-title"></h1>
-              <p class="resume-hint">
+              <p id="archive-breadcrumb" class="resume-breadcrumb hidden" aria-live="polite"></p>
+              <p id="resume-hint" class="resume-hint">
                 列表按<strong>下载次数</strong>优先排序；每次下载会更新计数并自动靠前展示。
               </p>
             </div>
-            <label class="btn btn-primary btn-upload">
+            <label id="resume-upload-label" class="btn btn-primary btn-upload">
               <span class="btn-icon" aria-hidden="true">↑</span>
               上传简历
               <input id="file-upload" type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp" />
@@ -113,14 +127,16 @@
         </div>
 
         <div class="list-shell">
-          <div class="list-shell-head">
-            <span class="list-shell-title">简历列表</span>
-            <span class="list-shell-hint">支持 PDF、Word、图片</span>
+            <div class="list-shell-head">
+            <div class="list-shell-head-main">
+              <span id="list-shell-title" class="list-shell-title">简历列表</span>
+              <span id="list-shell-hint" class="list-shell-hint">支持 PDF、Word、图片</span>
+            </div>
           </div>
           <div class="table-wrap">
-            <table class="resume-table">
+            <table id="resume-table" class="resume-table">
               <thead>
-                <tr>
+                <tr id="resume-thead-row">
                   <th class="col-file">文件</th>
                   <th class="col-num">下载</th>
                   <th class="col-time">上传时间</th>

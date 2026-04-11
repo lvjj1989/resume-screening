@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# 小熊简历筛选 — 重启 FastAPI（先释放端口再启动，API + 静态页面一体）
+# 小熊简历筛选 — 重启并启动 FastAPI（python -m uvicorn）
+#
+# 用法:
+#   ./start.sh                  前台运行（默认端口 8123，带 --reload）
+#   ./start.sh -b               后台运行，日志写入 backend/uvicorn.log
+#   ./start.sh --background
+#   BACKGROUND=1 ./start.sh
+#   PORT=9000 ./start.sh -b
+# 环境变量: HOST, PORT, BACKGROUND, RELOAD(0/1 关闭/开启热重载，默认 1)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -7,9 +15,34 @@ cd "$ROOT/backend"
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8123}"
+BACKGROUND="${BACKGROUND:-0}"
+RELOAD="${RELOAD:-1}"
+
+for arg in "$@"; do
+  case "$arg" in
+    -b | --background | -d)
+      BACKGROUND=1
+      ;;
+    -h | --help)
+      cat <<'EOF'
+用法:
+  ./start.sh                  前台运行（默认端口 8123，python -m uvicorn --reload）
+  ./start.sh -b               后台运行，日志 backend/uvicorn.log
+  ./start.sh --background
+  BACKGROUND=1 ./start.sh
+  PORT=9000 ./start.sh -b
+环境变量: HOST, PORT, BACKGROUND, RELOAD(0 关闭热重载)
+EOF
+      exit 0
+      ;;
+    *)
+      echo "未知参数: $arg（支持 -b / --background 后台运行，-h 帮助）" >&2
+      exit 1
+      ;;
+  esac
+done
 
 pids_on_port() {
-  # macOS / 多数 Linux：仅 LISTEN 进程
   lsof -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null \
     || lsof -ti:"$PORT" 2>/dev/null \
     || true
@@ -45,14 +78,42 @@ else
   stop_port
 fi
 
-if [[ -x .venv/bin/uvicorn ]]; then
-  UVICORN=".venv/bin/uvicorn"
-elif command -v uvicorn >/dev/null 2>&1; then
-  UVICORN="uvicorn"
+if [[ -x .venv/bin/python ]]; then
+  PY=".venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PY="python3"
 else
-  echo "未找到 uvicorn。请先执行: cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+  echo "未找到 python3。请先执行: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
   exit 1
 fi
 
-echo "启动服务: http://127.0.0.1:${PORT}"
-exec "$UVICORN" main:app --host "$HOST" --port "$PORT" --reload
+if ! "$PY" -c "import uvicorn" 2>/dev/null; then
+  echo "当前 Python 未安装 uvicorn。请执行: pip install -r requirements.txt" >&2
+  exit 1
+fi
+
+RELOAD_ARGS=()
+if [[ "$RELOAD" == "1" ]]; then
+  RELOAD_ARGS=(--reload)
+fi
+
+LOG="$ROOT/backend/uvicorn.log"
+PIDFILE="$ROOT/backend/.uvicorn.pid"
+
+if [[ "$RELOAD" == "1" ]]; then
+  echo "启动: $PY -m uvicorn main:app --host $HOST --port $PORT --reload"
+else
+  echo "启动: $PY -m uvicorn main:app --host $HOST --port $PORT"
+fi
+
+if [[ "$BACKGROUND" == "1" ]]; then
+  touch "$LOG"
+  nohup "$PY" -m uvicorn main:app --host "$HOST" --port "$PORT" "${RELOAD_ARGS[@]}" >>"$LOG" 2>&1 &
+  echo $! >"$PIDFILE"
+  echo "已在后台运行 uvicorn，PID $(cat "$PIDFILE")"
+  echo "日志: $LOG"
+  echo "访问: http://127.0.0.1:${PORT}"
+else
+  echo "前台运行: http://127.0.0.1:${PORT}"
+  exec "$PY" -m uvicorn main:app --host "$HOST" --port "$PORT" "${RELOAD_ARGS[@]}"
+fi

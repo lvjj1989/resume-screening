@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT/backend"
 
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-8123}"
 
 pids_on_port() {
   # macOS / 多数 Linux：仅 LISTEN 进程

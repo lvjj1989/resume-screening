@@ -17,10 +17,22 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
 
-from database import ARCHIVE_DIR, Base, DB_PATH, UPLOAD_DIR, engine, get_db
-from models import Folder, Resume
+from database import ARCHIVE_DIR, ATTACHMENT_DIR, Base, DB_PATH, UPLOAD_DIR, engine, get_db
+from models import Folder, Resume, ResumeAttachment
 
 Base.metadata.create_all(bind=engine)
+
+
+def _ensure_legacy_schema_compat() -> None:
+    """向历史数据库补齐新字段，避免升级后接口报错。"""
+    with engine.begin() as conn:
+        cols = conn.execute(text("PRAGMA table_info(resumes)")).mappings().all()
+        names = {c["name"] for c in cols}
+        if "remark" not in names:
+            conn.execute(text("ALTER TABLE resumes ADD COLUMN remark TEXT NOT NULL DEFAULT ''"))
+
+
+_ensure_legacy_schema_compat()
 
 JIANLI_PREFIX = "/jianli"
 
@@ -47,6 +59,10 @@ class AdminResumePatch(BaseModel):
     download_count: Optional[int] = Field(None, ge=0)
 
 
+class ResumeRemarkPatch(BaseModel):
+    remark: str = Field(default="", max_length=5000)
+
+
 class AdminSqlBody(BaseModel):
     sql: str = Field(..., min_length=1, max_length=100_000)
 
@@ -67,8 +83,30 @@ def _sql_cell_json(v):
     return str(v)
 
 
+def _to_sql_literal(v) -> str:
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "1" if v else "0"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, datetime):
+        s = v.isoformat(sep=" ", timespec="seconds")
+        return "'" + s.replace("'", "''") + "'"
+    if isinstance(v, (bytes, bytearray)):
+        return "X'" + bytes(v).hex() + "'"
+    s = str(v)
+    return "'" + s.replace("'", "''") + "'"
+
+
 def _folder_upload_dir(folder_id: int) -> Path:
     d = UPLOAD_DIR / str(folder_id)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _resume_attachment_dir(resume_id: int) -> Path:
+    d = ATTACHMENT_DIR / str(resume_id)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -320,7 +358,13 @@ def list_resumes(folder_id: int, db: Session = Depends(get_db)):
     items = (
         db.query(Resume)
         .filter(Resume.folder_id == folder_id)
-        .order_by(Resume.download_count.desc(), Resume.created_at.desc())
+        .order_by(Resume.created_at.desc(), Resume.id.desc())
+        .all()
+    )
+    counts = dict(
+        db.query(ResumeAttachment.resume_id, func.count(ResumeAttachment.id))
+        .filter(ResumeAttachment.resume_id.in_([r.id for r in items] or [-1]))
+        .group_by(ResumeAttachment.resume_id)
         .all()
     )
     return [
@@ -329,6 +373,8 @@ def list_resumes(folder_id: int, db: Session = Depends(get_db)):
             "original_filename": r.original_filename,
             "content_type": r.content_type,
             "download_count": r.download_count,
+            "remark": r.remark or "",
+            "attachment_count": int(counts.get(r.id, 0)),
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in items
@@ -377,6 +423,8 @@ async def upload_resume(
         "original_filename": r.original_filename,
         "content_type": r.content_type,
         "download_count": r.download_count,
+        "remark": r.remark or "",
+        "attachment_count": 0,
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 
@@ -395,10 +443,123 @@ def delete_resume(resume_id: int, db: Session = Depends(get_db)):
                 status_code=500,
                 detail=f"移入历史人才库失败: {e}",
             ) from e
+    att_dir = ATTACHMENT_DIR / str(r.id)
+    if att_dir.is_dir():
+        shutil.rmtree(att_dir, ignore_errors=True)
     db.delete(r)
     db.commit()
     return {"ok": True}
 
+
+@jianli_app.patch("/api/resumes/{resume_id}/remark")
+def update_resume_remark(resume_id: int, payload: ResumeRemarkPatch, db: Session = Depends(get_db)):
+    r = db.query(Resume).filter(Resume.id == resume_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    r.remark = (payload.remark or "").strip()
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return {"id": r.id, "remark": r.remark or ""}
+
+
+@jianli_app.get("/api/resumes/{resume_id}/attachments")
+def list_resume_attachments(resume_id: int, db: Session = Depends(get_db)):
+    r = db.query(Resume).filter(Resume.id == resume_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    rows = (
+        db.query(ResumeAttachment)
+        .filter(ResumeAttachment.resume_id == resume_id)
+        .order_by(ResumeAttachment.created_at.desc(), ResumeAttachment.id.desc())
+        .all()
+    )
+    out = []
+    for a in rows:
+        p = ATTACHMENT_DIR / str(resume_id) / a.stored_filename
+        size = p.stat().st_size if p.is_file() else 0
+        out.append(
+            {
+                "id": a.id,
+                "resume_id": a.resume_id,
+                "original_filename": a.original_filename,
+                "content_type": a.content_type,
+                "size": int(size),
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+        )
+    return out
+
+
+@jianli_app.post("/api/resumes/{resume_id}/attachments")
+async def upload_resume_attachment(
+    resume_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    r = db.query(Resume).filter(Resume.id == resume_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    raw_name = request.headers.get("X-Filename") or ""
+    orig = unquote(raw_name).strip() or "attachment"
+    ext = Path(orig).suffix
+    stored = f"{uuid.uuid4().hex}{ext}"
+    dest_dir = _resume_attachment_dir(resume_id)
+    dest_path = dest_dir / stored
+
+    ct = request.headers.get("Content-Type")
+    if not ct or ct == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(orig)
+        ct = guessed or "application/octet-stream"
+    content = await request.body()
+    if not content:
+        raise HTTPException(status_code=400, detail="空文件")
+    dest_path.write_bytes(content)
+
+    a = ResumeAttachment(
+        resume_id=resume_id,
+        original_filename=orig,
+        stored_filename=stored,
+        content_type=ct,
+    )
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+    return {
+        "id": a.id,
+        "resume_id": a.resume_id,
+        "original_filename": a.original_filename,
+        "content_type": a.content_type,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+    }
+
+
+@jianli_app.delete("/api/attachments/{attachment_id}")
+def delete_attachment(attachment_id: int, db: Session = Depends(get_db)):
+    a = db.query(ResumeAttachment).filter(ResumeAttachment.id == attachment_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    p = ATTACHMENT_DIR / str(a.resume_id) / a.stored_filename
+    if p.is_file():
+        p.unlink()
+    db.delete(a)
+    db.commit()
+    return {"ok": True}
+
+
+@jianli_app.get("/api/attachments/{attachment_id}/download")
+def download_attachment(attachment_id: int, db: Session = Depends(get_db)):
+    a = db.query(ResumeAttachment).filter(ResumeAttachment.id == attachment_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    p = ATTACHMENT_DIR / str(a.resume_id) / a.stored_filename
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="文件已丢失")
+    return FileResponse(
+        path=str(p),
+        filename=a.original_filename,
+        media_type=a.content_type or "application/octet-stream",
+    )
 
 @jianli_app.get("/api/resumes/{resume_id}/download")
 def download_resume(resume_id: int, db: Session = Depends(get_db)):
@@ -552,6 +713,55 @@ def admin_run_sql(body: AdminSqlBody):
                 "kind": "mutate",
                 "rowcount": rc if rc is not None else -1,
             }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@jianli_app.get("/api/admin/init-sql")
+def admin_init_sql():
+    """导出当前库初始化 SQL：包含所有业务表 CREATE 与 INSERT。"""
+    try:
+        lines = [
+            "-- Generated by /api/admin/init-sql",
+            "PRAGMA foreign_keys = OFF;",
+            "BEGIN TRANSACTION;",
+            "",
+        ]
+        with engine.connect() as conn:
+            tables = conn.execute(
+                text(
+                    """
+                    SELECT name, sql
+                    FROM sqlite_master
+                    WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                    ORDER BY name
+                    """
+                )
+            ).mappings().all()
+
+            for t in tables:
+                name = t["name"]
+                create_sql = (t["sql"] or "").strip()
+                if create_sql:
+                    lines.append(f"-- table: {name}")
+                    lines.append(create_sql + ";")
+                    lines.append("")
+
+            for t in tables:
+                name = t["name"]
+                rows = conn.execute(text(f'SELECT * FROM "{name}"')).mappings().all()
+                if not rows:
+                    continue
+                cols = list(rows[0].keys())
+                col_sql = ", ".join(f'"{c}"' for c in cols)
+                lines.append(f"-- data: {name}")
+                for r in rows:
+                    val_sql = ", ".join(_to_sql_literal(r[c]) for c in cols)
+                    lines.append(f'INSERT INTO "{name}" ({col_sql}) VALUES ({val_sql});')
+                lines.append("")
+
+        lines.append("COMMIT;")
+        return {"sql": "\n".join(lines)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

@@ -1094,8 +1094,14 @@ a:hover {
   width: 170px;
 }
 
+.col-remark {
+  width: 240px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .col-actions {
-  width: 230px;
+  width: 360px;
   text-align: right;
 }
 
@@ -1246,6 +1252,68 @@ a:hover {
 
 .resume-card-meta .download-badge {
   font-size: 0.8125rem;
+}
+
+.attachment-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+.attachment-name {
+  font-weight: 600;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.attachment-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.attachment-actions {
+  display: inline-flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.remark-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.remark-editor-text {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  padding: 0.75rem 0.8rem;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.remark-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.remark-editor-tip {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.remark-editor-actions {
+  display: inline-flex;
+  gap: 0.45rem;
 }
 
 @media (max-width: 767px) {

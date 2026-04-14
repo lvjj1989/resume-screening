@@ -11,6 +11,7 @@ ROOT_DIR = BASE_DIR.parent
 # 上传与归档仍在 backend/data；数据库单独放在项目根 db/，避免与文件目录混在一起
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
+ATTACHMENT_DIR = DATA_DIR / "attachments"
 ARCHIVE_DIR = DATA_DIR / "历史人才库"
 
 _db_env = os.environ.get("APP_DB_PATH", "").strip()
@@ -21,6 +22,7 @@ else:
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ATTACHMENT_DIR.mkdir(parents=True, exist_ok=True)
 ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 

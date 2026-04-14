@@ -63,6 +63,47 @@ function renderSqlResult(data) {
   }
 }
 
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {}
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  ta.style.top = "0";
+  ta.setAttribute("readonly", "readonly");
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch (_) {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function showManualCopyFallback(sqlText) {
+  const out = document.getElementById("sql-result");
+  out.hidden = false;
+  out.innerHTML = `
+    <p class="admin-sql-meta">浏览器限制了自动复制，请手动复制下方 SQL。</p>
+    <textarea id="manual-copy-sql" class="admin-sql-area" spellcheck="false"></textarea>
+  `;
+  const ta = document.getElementById("manual-copy-sql");
+  ta.value = sqlText || "";
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+}
+
 async function loadOverview() {
   const data = await api("GET", "/api/admin/overview");
   const meta = document.getElementById("admin-meta");
@@ -270,6 +311,32 @@ document.getElementById("btn-run-sql").addEventListener("click", async () => {
   } catch (e) {
     out.innerHTML = `<div class="admin-sql-error">${escapeHtml(e.message || "失败")}</div>`;
     toast(e.message || "失败");
+  }
+});
+
+document.getElementById("btn-copy-init-sql").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-copy-init-sql");
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "生成中...";
+  try {
+    const data = await api("GET", "/api/admin/init-sql");
+    const sql = data.sql || "";
+    const copied = await copyTextToClipboard(sql);
+    const out = document.getElementById("sql-result");
+    out.hidden = false;
+    if (copied) {
+      toast("初始化 SQL 已复制");
+      out.innerHTML = `<p class="admin-sql-meta">已复制初始化 SQL，长度 ${String(sql.length)} 字符。</p>`;
+    } else {
+      toast("自动复制失败，已切换手动复制");
+      showManualCopyFallback(sql);
+    }
+  } catch (e) {
+    toast(e.message || "复制失败");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
   }
 });
 

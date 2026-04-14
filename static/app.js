@@ -250,7 +250,7 @@ function syncResumeChrome() {
     hint.innerHTML =
       "列表按<strong>下载次数</strong>优先排序；每次下载会更新计数并自动靠前展示。";
     titleEl.textContent = "简历列表";
-    subEl.textContent = "支持 PDF、Word、图片";
+    subEl.textContent = "支持任意文件";
     crumb.classList.add("hidden");
     crumb.textContent = "";
   }
@@ -261,6 +261,7 @@ function setNormalTableHead() {
   theadRow.innerHTML = `
                 <th class="col-file">文件</th>
                 <th class="col-num">下载</th>
+                <th class="col-remark">备注</th>
                 <th class="col-time">上传时间</th>
                 <th class="col-actions">操作</th>
               `;
@@ -473,7 +474,7 @@ async function loadResumes() {
     const items = await api("GET", `/api/folders/${currentFolderId}/resumes`);
     if (!items.length) {
       tbody.innerHTML =
-        '<tr><td colspan="4" style="padding:0;border:none"><div class="empty">暂无简历<span class="empty-strong">点击「上传简历」添加 PDF、Word 或图片</span></div></td></tr>';
+        '<tr><td colspan="5" style="padding:0;border:none"><div class="empty">暂无简历<span class="empty-strong">点击「上传简历」添加任意文件</span></div></td></tr>';
       cards.innerHTML =
         '<p class="empty">暂无简历<span class="empty-strong">点击「上传简历」添加文件</span></p>';
       return;
@@ -489,11 +490,15 @@ async function loadResumes() {
           </div>
         </td>
         <td class="col-num"><span class="download-badge${hot}">${r.download_count}</span></td>
+        <td class="col-remark" title="${escapeHtml(r.remark || "")}">${escapeHtml(shortText(r.remark || ""))}</td>
         <td class="col-time time-cell">${formatDate(r.created_at)}</td>
         <td class="col-actions">
           <div class="resume-actions">
             <button type="button" class="btn btn-sm btn-action-preview preview-btn" data-id="${r.id}">预览</button>
             <a class="btn btn-sm btn-action-download download-link" href="${API}/api/resumes/${r.id}/download" download>下载</a>
+            <button type="button" class="btn btn-sm btn-action-download attachment-upload-btn" data-id="${r.id}">上传作品</button>
+            <button type="button" class="btn btn-sm btn-action-preview attachment-list-btn" data-id="${r.id}" data-name="${encodeURIComponent(r.original_filename || "")}">作品(${r.attachment_count || 0})</button>
+            <button type="button" class="btn btn-sm btn-action-preview remark-btn" data-id="${r.id}" data-remark="${encodeURIComponent(r.remark || "")}">备注</button>
             <button type="button" class="btn btn-sm btn-action-delete delete-resume-btn" data-id="${r.id}">删除</button>
           </div>
         </td>
@@ -511,9 +516,13 @@ async function loadResumes() {
           <span class="download-badge${hot}">${r.download_count} 次下载</span>
           <span>${formatDate(r.created_at)}</span>
         </div>
+        <div class="resume-card-meta">备注：${escapeHtml(shortText(r.remark || ""))}</div>
         <div class="resume-actions">
           <button type="button" class="btn btn-sm btn-action-preview preview-btn" data-id="${r.id}">预览</button>
           <a class="btn btn-sm btn-action-download download-link" href="${API}/api/resumes/${r.id}/download" download>下载</a>
+          <button type="button" class="btn btn-sm btn-action-download attachment-upload-btn" data-id="${r.id}">上传作品</button>
+          <button type="button" class="btn btn-sm btn-action-preview attachment-list-btn" data-id="${r.id}" data-name="${encodeURIComponent(r.original_filename || "")}">作品(${r.attachment_count || 0})</button>
+          <button type="button" class="btn btn-sm btn-action-preview remark-btn" data-id="${r.id}" data-remark="${encodeURIComponent(r.remark || "")}">备注</button>
           <button type="button" class="btn btn-sm btn-action-delete delete-resume-btn" data-id="${r.id}">删除</button>
         </div>
       `;
@@ -531,8 +540,21 @@ async function loadResumes() {
         setTimeout(() => loadResumes(), 600);
       });
     });
+    document.querySelectorAll(".remark-btn").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        editRemark(Number(btn.dataset.id), decodeURIComponent(btn.dataset.remark || ""))
+      );
+    });
+    document.querySelectorAll(".attachment-upload-btn").forEach((btn) => {
+      btn.addEventListener("click", () => pickAttachment(Number(btn.dataset.id)));
+    });
+    document.querySelectorAll(".attachment-list-btn").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        openAttachmentList(Number(btn.dataset.id), decodeURIComponent(btn.dataset.name || ""))
+      );
+    });
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="4" style="padding:0;border:none"><div class="empty">加载失败<span class="empty-strong">${escapeHtml(e.message)}</span></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:0;border:none"><div class="empty">加载失败<span class="empty-strong">${escapeHtml(e.message)}</span></div></td></tr>`;
     cards.innerHTML = `<p class="empty">${escapeHtml(e.message)}</p>`;
   }
 }
@@ -541,6 +563,12 @@ function formatDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   return isNaN(d) ? iso : d.toLocaleString("zh-CN", { hour12: false });
+}
+
+function shortText(s, max = 36) {
+  const t = (s || "").trim();
+  if (!t) return "—";
+  return t.length > max ? `${t.slice(0, max)}...` : t;
 }
 
 async function deleteResume(id) {
@@ -582,6 +610,139 @@ async function uploadResume(ev) {
     loadFolders();
   } catch (e) {
     toast(e.message);
+  }
+}
+
+let pendingAttachmentResumeId = null;
+
+function pickAttachment(resumeId) {
+  pendingAttachmentResumeId = resumeId;
+  const input = document.getElementById("attachment-upload");
+  input.value = "";
+  input.click();
+}
+
+async function uploadAttachment(ev) {
+  const input = ev.target;
+  const file = input.files && input.files[0];
+  input.value = "";
+  const resumeId = pendingAttachmentResumeId;
+  pendingAttachmentResumeId = null;
+  if (!file || !resumeId) return;
+  try {
+    const res = await fetch(`${API}/api/resumes/${resumeId}/attachments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-Filename": encodeURIComponent(file.name || "attachment"),
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const j = await res.json();
+        if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+      } catch (_) {}
+      throw new Error(detail);
+    }
+    toast("作品上传成功");
+    loadResumes();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function editRemark(resumeId, currentRemark) {
+  const modal = document.getElementById("modal");
+  const title = document.getElementById("modal-title");
+  const body = document.getElementById("modal-body");
+  title.textContent = "编辑备注";
+  body.innerHTML = `
+    <div class="remark-editor">
+      <textarea id="remark-editor-text" class="remark-editor-text" maxlength="5000" placeholder="请输入备注（可留空）"></textarea>
+      <div class="remark-editor-foot">
+        <span class="remark-editor-tip">最多 5000 字</span>
+        <div class="remark-editor-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="remark-cancel-btn">取消</button>
+          <button type="button" class="btn btn-primary btn-sm" id="remark-save-btn">保存备注</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const input = document.getElementById("remark-editor-text");
+  const saveBtn = document.getElementById("remark-save-btn");
+  const cancelBtn = document.getElementById("remark-cancel-btn");
+  input.value = currentRemark || "";
+  modal.classList.remove("hidden");
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+
+  const save = async () => {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "保存中...";
+    try {
+      await api("PATCH", `/api/resumes/${resumeId}/remark`, { remark: input.value || "" });
+      toast("备注已更新");
+      closeModal();
+      loadResumes();
+    } catch (e) {
+      toast(e.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = "保存备注";
+    }
+  };
+
+  saveBtn.addEventListener("click", save);
+  cancelBtn.addEventListener("click", closeModal);
+  input.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") save();
+  });
+}
+
+async function openAttachmentList(resumeId, resumeName) {
+  const modal = document.getElementById("modal");
+  const title = document.getElementById("modal-title");
+  const body = document.getElementById("modal-body");
+  title.textContent = `作品 · ${resumeName || `简历#${resumeId}`}`;
+  body.innerHTML = '<p class="preview-fallback">加载中…</p>';
+  modal.classList.remove("hidden");
+  try {
+    const items = await api("GET", `/api/resumes/${resumeId}/attachments`);
+    if (!items.length) {
+      body.innerHTML = '<div class="preview-fallback">暂无作品</div>';
+      return;
+    }
+    body.innerHTML = items
+      .map(
+        (a) => `
+      <div class="attachment-item">
+        <div class="attachment-meta">
+          <div class="attachment-name">${escapeHtml(a.original_filename)}</div>
+          <div class="attachment-sub">${formatBytes(a.size)} · ${formatDate(a.created_at)}</div>
+        </div>
+        <div class="attachment-actions">
+          <a class="btn btn-sm btn-action-download" href="${API}/api/attachments/${a.id}/download" download>下载</a>
+          <button type="button" class="btn btn-sm btn-action-delete attachment-del-btn" data-id="${a.id}" data-rid="${resumeId}">删除</button>
+        </div>
+      </div>`
+      )
+      .join("");
+    body.querySelectorAll(".attachment-del-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("确定删除该作品？")) return;
+        try {
+          await api("DELETE", `/api/attachments/${btn.dataset.id}`);
+          toast("作品已删除");
+          openAttachmentList(Number(btn.dataset.rid), resumeName);
+          loadResumes();
+        } catch (e) {
+          toast(e.message);
+        }
+      });
+    });
+  } catch (e) {
+    body.innerHTML = `<div class="preview-fallback">${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -657,6 +818,7 @@ document.getElementById("btn-rename-folder").addEventListener("click", () => {
   renameFolderById(currentFolderId, currentFolderName);
 });
 document.getElementById("file-upload").addEventListener("change", uploadResume);
+document.getElementById("attachment-upload").addEventListener("change", uploadAttachment);
 document.getElementById("modal-close").addEventListener("click", closeModal);
 document.getElementById("modal").addEventListener("click", (e) => {
   if (e.target.id === "modal") closeModal();

@@ -121,7 +121,7 @@
             <label id="resume-upload-label" class="btn btn-primary btn-upload">
               <span class="btn-icon" aria-hidden="true">↑</span>
               上传简历
-              <input id="file-upload" type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp" />
+              <input id="file-upload" type="file" hidden />
             </label>
           </div>
         </div>
@@ -130,7 +130,7 @@
             <div class="list-shell-head">
             <div class="list-shell-head-main">
               <span id="list-shell-title" class="list-shell-title">简历列表</span>
-              <span id="list-shell-hint" class="list-shell-hint">支持 PDF、Word、图片</span>
+              <span id="list-shell-hint" class="list-shell-hint">支持任意文件</span>
             </div>
           </div>
           <div class="table-wrap">
@@ -139,6 +139,7 @@
                 <tr id="resume-thead-row">
                   <th class="col-file">文件</th>
                   <th class="col-num">下载</th>
+                  <th class="col-remark">备注</th>
                   <th class="col-time">上传时间</th>
                   <th class="col-actions">操作</th>
                 </tr>
@@ -162,6 +163,7 @@
     </div>
 
     <div id="toast" class="toast" role="status"></div>
+    <input id="attachment-upload" type="file" hidden />
     <script src="/jianli/static/app.js"></script>
   </body>
 </html>
